@@ -248,7 +248,9 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   process.env.CLIENT_URL,                     // Firebase Hosting URL
-  'https://fifa2026-predictor.web.app',        // Remplacer par votre vrai projet ID
+  'https://ibirri.com',
+  'https://www.ibirri.com',
+  'https://fifa2026-predictor.web.app',
   'https://fifa2026-predictor.firebaseapp.com',
 ].filter(Boolean);
 
