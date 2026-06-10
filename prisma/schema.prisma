@@ -1,12 +1,573 @@
-// Copie du schema principal pour Render
-// Pointer vers packages/database/prisma/schema.prisma en prod
+// FIFA 2026 Predictor — Prisma Schema
+// Production-ready with full relations, indexes & optimizations
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "relationJoins"]
 }
 
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  FINISHED
+  POSTPONED
+  CANCELLED
+}
+
+enum MatchPhase {
+  GROUP_STAGE
+  ROUND_OF_32
+  ROUND_OF_16
+  QUARTER_FINAL
+  SEMI_FINAL
+  THIRD_PLACE
+  FINAL
+}
+
+enum PredictionResult {
+  PENDING
+  EXACT_SCORE        // +5 pts
+  CORRECT_WINNER     // +3 pts
+  CORRECT_GOAL_DIFF  // +2 pts
+  INCORRECT
+}
+
+enum LeagueVisibility {
+  PUBLIC
+  PRIVATE
+  PASSWORD_PROTECTED
+}
+
+enum NotificationType {
+  MATCH_STARTING
+  MATCH_RESULT
+  RANKING_CHANGE
+  LEAGUE_INVITATION
+  BADGE_EARNED
+  SYSTEM
+}
+
+enum BadgeType {
+  FIRST_PREDICTION
+  PERFECT_WEEK
+  EXACT_SCORE_STREAK
+  TOP_10_GLOBAL
+  TOP_1_GLOBAL
+  CENTURY_POINTS
+  EXPERT
+  CHAMPION
+  VISIONARY
+  KING_OF_PREDICTIONS
+}
+
+enum RewardType {
+  GOLD
+  SILVER
+  BRONZE
+  SPECIAL
+}
+
+enum OAuthProvider {
+  GOOGLE
+  FACEBOOK
+  APPLE
+}
+
+// ─────────────────────────────────────────────
+// USERS & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  emailVerified     DateTime?
+  passwordHash      String?
+  role              Role      @default(USER)
+  isBanned          Boolean   @default(false)
+  banReason         String?
+  twoFactorEnabled  Boolean   @default(false)
+  twoFactorSecret   String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastLoginAt       DateTime?
+
+  profile           UserProfile?
+  oauthAccounts     OAuthAccount[]
+  refreshTokens     RefreshToken[]
+  predictions       Prediction[]
+  leaguesCreated    League[]        @relation("LeagueCreator")
+  leagueMembers     LeagueMember[]
+  notifications     Notification[]
+  userBadges        UserBadge[]
+  rewards           UserReward[]
+  rankings          Ranking[]
+  chatMessages      ChatMessage[]
+  auditLogs         AuditLog[]
+  fcmTokens         FcmToken[]
+
+  @@index([email])
+  @@index([role])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model UserProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  firstName      String?
+  lastName       String?
+  username       String   @unique
+  bio            String?
+  avatarUrl      String?
+  country        String?
+  city           String?
+  favoriteTeamId String?
+  totalPoints    Int      @default(0)
+  totalPredictions Int    @default(0)
+  correctPredictions Int  @default(0)
+  exactScores    Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  favoriteTeam   Team?    @relation(fields: [favoriteTeamId], references: [id])
+
+  @@index([username])
+  @@index([totalPoints])
+  @@index([country])
+  @@map("user_profiles")
+}
+
+model OAuthAccount {
+  id             String        @id @default(cuid())
+  userId         String
+  provider       OAuthProvider
+  providerUserId String
+  accessToken    String?
+  refreshToken   String?
+  expiresAt      DateTime?
+  createdAt      DateTime      @default(now())
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model FcmToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("fcm_tokens")
+}
+
+// ─────────────────────────────────────────────
+// TEAMS & MATCHES
+// ─────────────────────────────────────────────
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  shortName   String
+  code        String   @unique  // FIFA 3-letter code: FRA, BRA
+  flagUrl     String?
+  groupName   String?          // A, B, C...
+  externalId  String?  @unique // API-Football ID
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  homeMatches Match[]       @relation("HomeTeam")
+  awayMatches Match[]       @relation("AwayTeam")
+  profiles    UserProfile[]
+
+  @@index([code])
+  @@map("teams")
+}
+
+model Stadium {
+  id        String   @id @default(cuid())
+  name      String
+  city      String
+  country   String
+  capacity  Int?
+  latitude  Float?
+  longitude Float?
+
+  matches   Match[]
+
+  @@map("stadiums")
+}
+
+model Match {
+  id            String      @id @default(cuid())
+  externalId    String?     @unique
+  homeTeamId    String
+  awayTeamId    String
+  stadiumId     String?
+  group         String?     // "A", "B", null pour phases finales
+  phase         MatchPhase
+  status        MatchStatus @default(SCHEDULED)
+  scheduledAt   DateTime
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  homeScore     Int?
+  awayScore     Int?
+  homeScoreHalf Int?
+  awayScoreHalf Int?
+  minute        Int?        // minute en cours (live)
+  matchdayNum   Int?
+  roundName     String?
+  isNeutral     Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  homeTeam      Team        @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam      Team        @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  stadium       Stadium?    @relation(fields: [stadiumId], references: [id])
+  predictions   Prediction[]
+
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([phase])
+  @@index([homeTeamId])
+  @@index([awayTeamId])
+  @@map("matches")
+}
+
+// ─────────────────────────────────────────────
+// PREDICTIONS
+// ─────────────────────────────────────────────
+
+model Prediction {
+  id              String           @id @default(cuid())
+  userId          String
+  matchId         String
+  homeScore       Int
+  awayScore       Int
+  submittedAt     DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  isLockedIn      Boolean          @default(false) // locked when match starts
+  result          PredictionResult @default(PENDING)
+  pointsEarned    Int              @default(0)
+  bonusEarly      Boolean          @default(false) // submitted >24h before
+  bonusPerfect    Boolean          @default(false) // exact score bonus
+  processedAt     DateTime?
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match           Match            @relation(fields: [matchId], references: [id])
+
+  @@unique([userId, matchId])
+  @@index([userId])
+  @@index([matchId])
+  @@index([result])
+  @@index([submittedAt])
+  @@map("predictions")
+}
+
+// ─────────────────────────────────────────────
+// POINT SYSTEM CONFIG
+// ─────────────────────────────────────────────
+
+model PointConfig {
+  id                String   @id @default(cuid())
+  exactScore        Int      @default(5)
+  correctWinner     Int      @default(3)
+  correctGoalDiff   Int      @default(2)
+  earlyBonus        Int      @default(1)
+  perfectBonus      Int      @default(5)
+  isActive          Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+  updatedBy         String?
+
+  @@map("point_configs")
+}
+
+// ─────────────────────────────────────────────
+// LEAGUES
+// ─────────────────────────────────────────────
+
+model League {
+  id           String           @id @default(cuid())
+  creatorId    String
+  name         String
+  slug         String           @unique
+  description  String?
+  logoUrl      String?
+  visibility   LeagueVisibility @default(PRIVATE)
+  passwordHash String?
+  maxMembers   Int              @default(100)
+  inviteCode   String           @unique @default(cuid())
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  creator      User             @relation("LeagueCreator", fields: [creatorId], references: [id])
+  members      LeagueMember[]
+  rankings     Ranking[]
+  chat         LeagueChat?
+
+  @@index([slug])
+  @@index([inviteCode])
+  @@index([visibility])
+  @@map("leagues")
+}
+
+model LeagueMember {
+  id        String   @id @default(cuid())
+  leagueId  String
+  userId    String
+  isAdmin   Boolean  @default(false)
+  joinedAt  DateTime @default(now())
+
+  league    League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, userId])
+  @@index([leagueId])
+  @@index([userId])
+  @@map("league_members")
+}
+
+// ─────────────────────────────────────────────
+// RANKINGS
+// ─────────────────────────────────────────────
+
+model Ranking {
+  id            String   @id @default(cuid())
+  userId        String
+  leagueId      String?  // null = global ranking
+  rank          Int
+  previousRank  Int?
+  points        Int      @default(0)
+  exactScores   Int      @default(0)
+  correctWins   Int      @default(0)
+  totalPredictions Int   @default(0)
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  league        League?  @relation(fields: [leagueId], references: [id])
+
+  @@unique([userId, leagueId])
+  @@index([leagueId])
+  @@index([points])
+  @@index([rank])
+  @@map("rankings")
+}
+
+// ─────────────────────────────────────────────
+// CHAT
+// ─────────────────────────────────────────────
+
+model LeagueChat {
+  id        String        @id @default(cuid())
+  leagueId  String        @unique
+  createdAt DateTime      @default(now())
+
+  league    League        @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+
+  @@map("league_chats")
+}
+
+model ChatMessage {
+  id          String      @id @default(cuid())
+  chatId      String
+  userId      String
+  content     String
+  gifUrl      String?
+  replyToId   String?
+  isDeleted   Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  chat        LeagueChat  @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id])
+  replyTo     ChatMessage? @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies     ChatMessage[] @relation("MessageReplies")
+  reactions   MessageReaction[]
+
+  @@index([chatId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+
+model MessageReaction {
+  id        String      @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime    @default(now())
+
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@map("message_reactions")
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  isRead    Boolean          @default(false)
+  sentPush  Boolean          @default(false)
+  sentEmail Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────
+// BADGES & REWARDS
+// ─────────────────────────────────────────────
+
+model Badge {
+  id          String     @id @default(cuid())
+  type        BadgeType  @unique
+  name        String
+  description String
+  iconUrl     String?
+  points      Int        @default(0)
+  isActive    Boolean    @default(true)
+
+  userBadges  UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  earnedAt  DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id])
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+  @@map("user_badges")
+}
+
+model Reward {
+  id          String     @id @default(cuid())
+  type        RewardType
+  name        String
+  description String?
+  imageUrl    String?
+  value       String?    // valeur du coupon, lien, etc.
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+
+  userRewards UserReward[]
+
+  @@map("rewards")
+}
+
+model UserReward {
+  id          String   @id @default(cuid())
+  userId      String
+  rewardId    String
+  awardedAt   DateTime @default(now())
+  claimedAt   DateTime?
+  expiresAt   DateTime?
+
+  user        User     @relation(fields: [userId], references: [id])
+  reward      Reward   @relation(fields: [rewardId], references: [id])
+
+  @@index([userId])
+  @@map("user_rewards")
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOGS
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String   // "USER_BANNED", "MATCH_CREATED", etc.
+  entity     String?  // "User", "Match", etc.
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────
+// SYSTEM
+// ─────────────────────────────────────────────
+
+model SyncLog {
+  id          String   @id @default(cuid())
+  source      String   // "API_FOOTBALL"
+  type        String   // "MATCHES", "RESULTS"
+  status      String   // "SUCCESS", "ERROR"
+  recordsSync Int      @default(0)
+  error       String?
+  duration    Int?     // ms
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("sync_logs")
 }
