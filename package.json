@@ -1,0 +1,22 @@
+{
+  "name": "fifa2026-api",
+  "version": "1.0.0",
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "start":   "node server.js",
+    "dev":     "node --watch server.js",
+    "db:push": "npx prisma db push",
+    "db:seed": "node seed-prod.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "dotenv": "^16.4.5",
+    "@prisma/client": "^5.22.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  }
+}
