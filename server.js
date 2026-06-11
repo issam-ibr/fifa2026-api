@@ -251,6 +251,8 @@ const ALLOWED_ORIGINS = [
   'https://ibirri.com',
   'https://www.ibirri.com',
   'https://fifa2026-predictor.web.app',
+  'https://fifa2026-predictor-b4792.web.app',
+  'https://fifa2026-predictor-b4792.firebaseapp.com',
   'https://fifa2026-predictor.firebaseapp.com',
 ].filter(Boolean);
 
