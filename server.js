@@ -533,6 +533,56 @@ app.get('/api/v1/rankings', async (req, res) => {
   });
 });
 
+// ── Predictions d'un match (tous les utilisateurs) ────────────────
+app.get('/api/v1/matches/:id/predictions', auth, async (req, res) => {
+  try {
+    const match = await prisma.match.findUnique({
+      where: { id: req.params.id },
+      include: { homeTeam: true, awayTeam: true },
+    });
+    if (!match) return res.status(404).json({ message: 'Match introuvable' });
+
+    // Visible seulement si match LIVE ou FINISHED
+    if (match.status === 'SCHEDULED') {
+      return res.status(403).json({ message: 'Les pronostics sont visibles seulement apres le coup d\'envoi' });
+    }
+
+    const predictions = await prisma.prediction.findMany({
+      where: { matchId: req.params.id },
+      include: {
+        user: {
+          include: { profile: { select: { username: true, avatarUrl: true, country: true } } },
+        },
+      },
+      orderBy: { pointsEarned: 'desc' },
+    });
+
+    res.json({
+      match,
+      predictions: predictions.map(p => ({
+        userId:         p.userId,
+        username:       p.user.profile?.username ?? '?',
+        avatarUrl:      p.user.profile?.avatarUrl,
+        country:        p.user.profile?.country,
+        homeScore:      p.homeScore,
+        awayScore:      p.awayScore,
+        predictionType: p.predictionType,
+        winnerChoice:   p.winnerChoice,
+        result:         p.result,
+        pointsEarned:   p.pointsEarned,
+        bonusEarly:     p.bonusEarly,
+      })),
+      stats: {
+        total:       predictions.length,
+        homeWin:     predictions.filter(p => p.homeScore > p.awayScore || p.winnerChoice === 'HOME').length,
+        draw:        predictions.filter(p => p.homeScore === p.awayScore || p.winnerChoice === 'DRAW').length,
+        awayWin:     predictions.filter(p => p.homeScore < p.awayScore || p.winnerChoice === 'AWAY').length,
+        exactScores: predictions.filter(p => p.result === 'EXACT_SCORE').length,
+      },
+    });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // ── Teams ─────────────────────────────────────────────────────────
 app.get('/api/v1/teams', async (_, res) => {
   res.json({ teams: await prisma.team.findMany({ orderBy: { name: 'asc' } }) });
