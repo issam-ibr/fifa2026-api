@@ -487,21 +487,24 @@ app.post('/api/v1/predictions', auth, async (req, res) => {
     // ── Bonus anticipation (>24h avant) ───────────────────────────
     const bonusEarly = minutesUntilKickoff > (24 * 60);
 
-    // Pour le mode WINNER, on stocke le score symbolique + le type
-    // Le calcul des points tiendra compte du type
+    // Stocker predictionType et winnerChoice en DB
     const pred = await prisma.prediction.upsert({
       where: { userId_matchId: { userId: req.user.sub, matchId } },
       create: {
         userId: req.user.sub, matchId,
         homeScore: +homeScore, awayScore: +awayScore,
         bonusEarly,
-        // On stocke le type dans un champ JSON metadata
+        predictionType: predictionType || 'SCORE',
+        winnerChoice:   winner || null,
       },
-      update: { homeScore: +homeScore, awayScore: +awayScore, bonusEarly },
+      update: {
+        homeScore: +homeScore, awayScore: +awayScore, bonusEarly,
+        predictionType: predictionType || 'SCORE',
+        winnerChoice:   winner || null,
+      },
     });
 
-    // Retourner avec les infos du type pour le frontend
-    res.json({ ...pred, predictionType, winner });
+    res.json(pred);
   } catch (e) { res.status(500).json({ message: e.message }); }
 });
 

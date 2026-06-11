@@ -286,12 +286,14 @@ model Prediction {
   awayScore       Int
   submittedAt     DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
-  isLockedIn      Boolean          @default(false) // locked when match starts
+  isLockedIn      Boolean          @default(false)
   result          PredictionResult @default(PENDING)
   pointsEarned    Int              @default(0)
-  bonusEarly      Boolean          @default(false) // submitted >24h before
-  bonusPerfect    Boolean          @default(false) // exact score bonus
+  bonusEarly      Boolean          @default(false)
+  bonusPerfect    Boolean          @default(false)
   processedAt     DateTime?
+  predictionType  String           @default("SCORE")  // "SCORE" ou "WINNER"
+  winnerChoice    String?                              // "HOME", "DRAW", "AWAY"
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   match           Match            @relation(fields: [matchId], references: [id])
