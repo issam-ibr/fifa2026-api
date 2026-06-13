@@ -508,6 +508,37 @@ app.post('/api/v1/predictions', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
+// ── Teams ─────────────────────────────────────────────────────────
+app.get('/api/v1/teams', async (req, res) => {
+  const teams = await prisma.team.findMany({ orderBy: [{ groupName: 'asc' }, { name: 'asc' }] });
+  res.json({ teams });
+});
+
+// ── Champion Pick ──────────────────────────────────────────────────
+const CHAMPION_DEADLINE = new Date('2026-06-17T23:59:59Z');
+
+app.get('/api/v1/users/me/champion', auth, async (req, res) => {
+  try {
+    const profile = await prisma.userProfile.findUnique({ where: { userId: req.user.sub } });
+    if (!profile?.championPickId) return res.json({ champion: null, locked: Date.now() > CHAMPION_DEADLINE.getTime() });
+    const team = await prisma.team.findUnique({ where: { id: profile.championPickId } });
+    res.json({ champion: team, locked: Date.now() > CHAMPION_DEADLINE.getTime() });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+app.post('/api/v1/users/me/champion', auth, async (req, res) => {
+  try {
+    if (Date.now() > CHAMPION_DEADLINE.getTime()) {
+      return res.status(403).json({ message: 'Les picks champion sont fermes depuis le 17 juin 2026' });
+    }
+    const { teamId } = req.body;
+    const team = await prisma.team.findUnique({ where: { id: teamId } });
+    if (!team) return res.status(404).json({ message: 'Equipe introuvable' });
+    await prisma.userProfile.update({ where: { userId: req.user.sub }, data: { championPickId: teamId } });
+    res.json({ champion: team });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // ── Rankings ──────────────────────────────────────────────────────
 app.get('/api/v1/rankings', async (req, res) => {
   const { page = 1, limit = 50 } = req.query;
@@ -520,6 +551,14 @@ app.get('/api/v1/rankings', async (req, res) => {
     }),
     prisma.userProfile.count(),
   ]);
+
+  // Load champion teams for all profiles that have a pick
+  const teamIds = [...new Set(profiles.map(p => p.championPickId).filter(Boolean))];
+  const championTeams = teamIds.length > 0
+    ? await prisma.team.findMany({ where: { id: { in: teamIds } } })
+    : [];
+  const teamMap = new Map(championTeams.map(t => [t.id, t]));
+
   res.json({
     rankings: profiles.map((p, i) => ({
       rank: (Number(page) - 1) * Number(limit) + i + 1,
@@ -527,6 +566,7 @@ app.get('/api/v1/rankings', async (req, res) => {
       points: p.totalPoints,
       exactScores: p.exactScores,
       totalPredictions: p.totalPredictions,
+      champion: p.championPickId ? teamMap.get(p.championPickId) ?? null : null,
       user: { id: p.userId, role: p.user.role, profile: { username: p.username, avatarUrl: p.avatarUrl, country: p.country } },
     })),
     total, page: Number(page), totalPages: Math.ceil(total / Number(limit)),

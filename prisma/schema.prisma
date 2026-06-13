@@ -138,7 +138,8 @@ model UserProfile {
   avatarUrl      String?
   country        String?
   city           String?
-  favoriteTeamId String?
+  favoriteTeamId  String?
+  championPickId  String?
   totalPoints    Int      @default(0)
   totalPredictions Int    @default(0)
   correctPredictions Int  @default(0)
